@@ -439,7 +439,7 @@ The channel count messages below are for the Apollo x4 — other models show dif
 | `mixer DSP alive` | DSP firmware is running |
 | `ACEFACE handshake OK` | Audio transport connection succeeded |
 | `ALSA mixer: N controls` | ALSA controls registered |
-| `DMA buffers: play=... rec=...` | DMA memory allocated |
+| `DMA buffers: 1024 pages per direction` | DMA memory allocated |
 
 ### Enable Verbose Debug Logging
 

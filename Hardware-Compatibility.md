@@ -2,6 +2,13 @@ Community-reported test results, one row per hardware and system combination. **
 
 For the per-model table (device types, channel counts, verification scope) see [Supported Devices](Supported-Devices).
 
+## Install statistics
+
+The installers' opt-in telemetry feeds a public dashboard: success rate by distro and kernel, a Thunderbolt controller compatibility matrix, and per-report install step results.
+
+- Dashboard: https://open-apollo-api.rolotrealanis.workers.dev/
+- Compatibility matrix: https://open-apollo-api.rolotrealanis.workers.dev/compatibility.html
+
 ## Verified working
 
 | Model | Connection | Distro | Kernel | Playback | Capture | Preamps | Reported by | Notes |

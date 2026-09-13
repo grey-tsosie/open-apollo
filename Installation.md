@@ -433,7 +433,7 @@ Help improve Open Apollo — send anonymous install report? [y/N]
 
 The report is saved as `/tmp/open-apollo-install-report.json` (Thunderbolt) or `/tmp/open-apollo-usb-install-report.json` (USB) whether or not you send it, so you can read exactly what it contains before answering. It includes: distro, kernel, architecture, CPU model, RAM, Secure Boot and IOMMU state, PipeWire and WirePlumber versions, existing sound cards and `snd_*` modules, the Apollo's PCI address and Thunderbolt controller, the outcome of each install step, `dmesg` lines mentioning `ua_apollo`, IOMMU groups, `aplay -l` and `arecord -l` output, and the first 500 lines of `pw-dump`. You can optionally add a GitHub username for follow-up.
 
-Reports are POSTed to `https://open-apollo-api.rolotrealanis.workers.dev/reports`. Two things to know:
+Reports are POSTed to `https://open-apollo-api.rolotrealanis.workers.dev/reports` and are publicly browsable on the [install dashboard](https://open-apollo-api.rolotrealanis.workers.dev/): aggregate statistics plus, per report, the system, audio, Apollo detection, IOMMU group, and install-step fields. The GitHub username, `dmesg` output, log excerpts, and PipeWire dump are stored but not shown publicly. Two things to know:
 
 - The Thunderbolt installer (`scripts/install.sh`) and `tools/contribute/device-probe.sh` **send automatically when there is no terminal** (piped input, non-interactive SSH). Run them from an interactive shell if you want to be asked.
 - The USB installer (`scripts/install-usb.sh`) never sends without an explicit `y`.

@@ -50,6 +50,13 @@ jobs:
           sudo apt-get install -y shellcheck
           find scripts tools configs tests -name '*.sh' -print0 | xargs -0 shellcheck --severity=error
 
+  installer-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installer unit tests
+        run: bash tests/test-install-module-binding.sh
+
   console-web:
     runs-on: ubuntu-latest
     steps:

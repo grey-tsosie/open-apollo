@@ -13,6 +13,7 @@
 #include <linux/pci.h>
 #include <linux/interrupt.h>
 #include <linux/mutex.h>
+#include <linux/rwsem.h>
 #include <linux/cdev.h>
 #include <linux/completion.h>
 #include <linux/workqueue.h>
@@ -690,16 +691,32 @@ struct ua_monitor_state {
 	int cue2_mix;        /* CUE2 mix: 0=on, 2=off */
 };
 
+/* Page-granular backing store for one audio DMA ring (ua_audio.c) */
+struct ua_dma_ring {
+	struct page **pages;        /* UA_DMA_SG_ENTRIES entries, kvcalloc()ed */
+	dma_addr_t *dmas;           /* device address of pages[i] */
+	unsigned int nr_pages;      /* pages successfully allocated */
+};
+
 struct ua_audio {
 	/* ALSA */
 	struct snd_card *card;
 	struct snd_pcm *pcm;
 
-	/* DMA buffers — 4 MiB coherent per direction */
-	void *play_buf;
-	dma_addr_t play_addr;
-	void *rec_buf;
-	dma_addr_t rec_addr;
+	/*
+	 * Audio DMA rings — UA_DMA_BUF_SIZE (4 MiB) per direction, each
+	 * UA_DMA_SG_ENTRIES separate pages (see "Audio DMA rings" in
+	 * ua_audio.c) vmap()ed into one flat CPU range so the PCM copy
+	 * path and the dma_test ioctl keep treating a ring as a single
+	 * buffer.  Page bookkeeping lives in separately allocated arrays
+	 * so this struct stays a small slab object.
+	 */
+	struct ua_dma_ring play_ring;
+	struct ua_dma_ring rec_ring;
+	void *play_buf;             /* vmap()ed flat view of play_ring */
+	void *rec_buf;              /* vmap()ed flat view of rec_ring */
+	struct rw_semaphore dma_sem; /* read: PCM copy/silence, dma_test;
+				      * write: ua_audio_fini() teardown */
 
 	/* Audio state */
 	bool connected;             /* DSP firmware connection established */

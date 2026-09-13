@@ -2,6 +2,7 @@
 [![License: GPL v2](https://img.shields.io/badge/License-GPL_v2-blue.svg?style=flat-square)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
 [![Ubuntu 24.04](https://img.shields.io/badge/Ubuntu-24.04-E95420?style=flat-square&logo=ubuntu&logoColor=white)](https://github.com/rolotrealanis98/open-apollo/wiki/Hardware-Compatibility)
 [![Docs](https://img.shields.io/badge/docs-wiki-blue?style=flat-square)](https://github.com/rolotrealanis98/open-apollo/wiki)
+[![Installs](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fopen-apollo-api.rolotrealanis.workers.dev%2Fapi%2Fstats%3Fsource%3Duser&query=%24.total_installs&label=installs%20reported&style=flat-square)](https://open-apollo-api.rolotrealanis.workers.dev/)
 [![Issues](https://img.shields.io/github/issues/rolotrealanis98/open-apollo?style=flat-square)](https://github.com/rolotrealanis98/open-apollo/issues)
 
 # Open Apollo
@@ -282,6 +283,11 @@ Full documentation is on the **[GitHub wiki](https://github.com/rolotrealanis98/
 - [How to contribute](https://github.com/rolotrealanis98/open-apollo/wiki/How-to-Contribute) — testing, device captures, code contributions
 
 The wiki is the only copy of the documentation. Edit pages there directly; no PR needed.
+
+Install telemetry from the installers' opt-in reports is public at the
+**[install dashboard](https://open-apollo-api.rolotrealanis.workers.dev/)**:
+success rates by distro and kernel, a Thunderbolt controller compatibility
+matrix, and per-report install step results.
 
 ## Contributing
 

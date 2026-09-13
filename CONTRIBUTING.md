@@ -25,7 +25,7 @@ us understand what works and what needs fixing across the Apollo product line.
    ```
 
    If you are unsure which connection type your Apollo uses, see
-   [Installation](https://open-apollo.org/docs/installation).
+   [Installation](https://github.com/rolotrealanis98/open-apollo/wiki/Installation).
 
 ### Thunderbolt Apollo (x-series, Twin/Arrow Thunderbolt)
 
@@ -67,13 +67,13 @@ your hardware revision. Negative results are still valuable.
 
 For Apollo models we don't have routing tables for yet, we need register-level
 captures from a working macOS system using DTrace. See the
-[Device Capture (macOS) guide](https://open-apollo.org/docs/device-capture-macos)
+[Device Capture (macOS) guide](https://github.com/rolotrealanis98/open-apollo/wiki/Device-Capture-macOS)
 for instructions. The capture script is read-only — it observes driver behavior
 without modifying anything.
 
 For **USB** models, the equivalent is a USBPcap capture of the Windows driver
 bringing the device up, which you then replay on Linux from your own machine.
-See the [Device Capture (Windows, USB) guide](https://open-apollo.org/docs/device-capture-windows).
+See the [Device Capture (Windows, USB) guide](https://github.com/rolotrealanis98/open-apollo/wiki/Device-Capture-Windows).
 
 > **Note:** Captures contain only hardware register values — no personal data,
 > no audio content, no account information.

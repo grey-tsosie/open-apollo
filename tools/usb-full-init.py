@@ -203,7 +203,7 @@ usb.util.release_interface(dev, 0)
 # It holds volume/mute/source/dim state that the ARM MCU needs for the
 # front panel knob and buttons to work. Writing it with a non-zero mask
 # during init overwrites the firmware's own defaults and breaks physical
-# knob control — see docs/register-map/page.md and
-# docs/initialization/page.md.
+# knob control — see the Register-Map and Initialization-Sequence pages on
+# the GitHub wiki.
 
 print("Ready — run 'sudo modprobe snd_usb_audio' to get ALSA card")

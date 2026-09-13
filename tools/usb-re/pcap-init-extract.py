@@ -29,7 +29,7 @@ Output format ("APLO2"):
 
 The sequence is specific to the device model and firmware it was captured
 from, and contains DSP program data UA ships with its driver.  Keep it
-local, like the firmware image; see docs/device-capture-windows.
+local, like the firmware image; see the Device-Capture-Windows wiki page.
 
 Usage:
     python3 pcap-init-extract.py capture.pcapng -o init.seq

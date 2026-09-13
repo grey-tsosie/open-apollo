@@ -217,8 +217,8 @@ def main():
     # setting[2] (monitor core) holds volume/mute/source/dim state that the
     # ARM MCU needs for the front panel knob and buttons to work. Writing it
     # with a non-zero mask during init overwrites the firmware's own
-    # defaults and breaks physical knob control — see
-    # docs/register-map/page.md and docs/initialization/page.md.
+    # defaults and breaks physical knob control — see the Register-Map and
+    # Initialization-Sequence pages on the GitHub wiki.
     print("Ready")
 
     if daemon_mode:

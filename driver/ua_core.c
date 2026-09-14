@@ -2667,8 +2667,6 @@ static int ua_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		return ret;
 	}
 
-	pci_set_master(pdev);
-
 	/*
 	 * Force 32-bit DMA mask.
 	 *
@@ -2719,8 +2717,11 @@ static int ua_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	 *
 	 * Everything above this point is register reads plus the PCI
 	 * enable/BAR map, both of which are devres-managed (pcim_*) and
-	 * unwind automatically. Nothing below has run, so ua_remove()
-	 * must not attempt the normal teardown — hence probe_minimal.
+	 * unwind automatically. Bus mastering is enabled only after this
+	 * block, so a probe_only device cannot initiate DMA from whatever
+	 * ring state the previous OS left behind. Nothing below has run,
+	 * so ua_remove() must not attempt the normal teardown — hence
+	 * probe_minimal.
 	 */
 	if (probe_only) {
 		char serial[UA_REG_SERIAL_LEN + 1];
@@ -2761,6 +2762,8 @@ static int ua_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 			 "probe_only=1: no IRQ, no firmware, no DMA, no ALSA. rmmod to release.\n");
 		return 0;
 	}
+
+	pci_set_master(pdev);
 
 	/* Ring buffer + DMA page dump for warm-boot analysis.
 	 * Reads the PREVIOUS OS's ring buffer pages via memremap

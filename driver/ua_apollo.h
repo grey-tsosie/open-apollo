@@ -817,7 +817,8 @@ struct ua_device {
 	 * ua_remove() MUST check this and bail early — the normal teardown
 	 * path calls free_irq(), hrtimer_cancel(), device_destroy() and
 	 * cdev_del() unconditionally, all of which are invalid on a
-	 * minimally-probed device. */
+	 * minimally-probed device.
+	 */
 	bool probe_minimal;
 
 	/* Interrupts */

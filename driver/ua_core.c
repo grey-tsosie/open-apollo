@@ -257,7 +257,8 @@ static void ua_detect_capabilities(struct ua_device *ua)
 			/* Twin X DUO pinned by subsystem ID 0x0019, read off real
 			 * hardware via macOS IOKit rather than inferred from the
 			 * serial table. Serial-prefix matching is documented as
-			 * unreliable, so prefer this whenever it is available. */
+			 * unreliable, so prefer this whenever it is available.
+			 */
 			ua->device_type = UA_DEV_APOLLO_TWIN_X;
 			break;
 		default:
@@ -2929,7 +2930,8 @@ static void ua_remove(struct pci_dev *pdev)
 	 */
 	if (ua->probe_minimal) {
 		dev_info(&pdev->dev,
-			 "ua_remove: probe_only device, nothing to tear down\n");
+			 "%s: probe_only device, nothing to tear down\n",
+			 __func__);
 		return;
 	}
 
@@ -3033,7 +3035,8 @@ static pci_ers_result_t ua_slot_reset(struct pci_dev *pdev)
 	}
 
 	/* shutdown stays set during recovery, so ua_read() returns all ones.
-	 * Check the mapped register directly while other BAR0 access is blocked. */
+	 * Check the mapped register directly while other BAR0 access is blocked.
+	 */
 	ua->fpga_rev = ioread32(ua->regs + UA_REG_FPGA_REV);
 	if (ua->fpga_rev == 0xFFFFFFFF) {
 		dev_err(&pdev->dev,
@@ -3042,7 +3045,8 @@ static pci_ers_result_t ua_slot_reset(struct pci_dev *pdev)
 	}
 
 	/* probe_only must stay observational even through error recovery;
-	 * the re-init below would program registers we promised not to touch. */
+	 * the re-init below would program registers we promised not to touch.
+	 */
 	if (ua->probe_minimal) {
 		dev_info(&pdev->dev,
 			 "slot reset: probe_only device, skipping re-init\n");

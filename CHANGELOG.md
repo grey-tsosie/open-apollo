@@ -17,6 +17,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Keep Twin X Gen 2 outside the untested DSP opt-in and DUO channel measurements.
 - Check device reachability during identification-only PCI recovery.
 - Resolve multi-word device models to their complete mixer-map filenames.
+- Keep bus mastering off during identification-only probes so a probe_only load cannot start DMA.
+- Report development-helper probe side effects, initializer open errors and unreadable SIP status accurately.
 
 ## [1.0.0] - 2026-03-22
 

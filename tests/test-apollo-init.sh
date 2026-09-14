@@ -34,6 +34,7 @@ python3() {
         -)
             echo read >> "$fixture/events"
             [[ $scenario != readfail ]] || return 42
+            if [[ $scenario == openfail ]]; then echo 'device_error=[Errno 13] fixture denied'; return 1; fi
             [[ $scenario != empty ]] || return 0
             local wr=0 rd=0 responds=0 pcie=1
             case "$scenario" in
@@ -67,7 +68,7 @@ python3() {
 }
 export -f '[' id logname lsmod chmod sleep hostname sudo wpctl pgrep pkill insmod python3
 export scenario
-for scenario in fwfail readfail partialfail empty malformed overflow unknown stalled frozen dead connectfail verifyfail verifyreadfail verifymalformed alive cold newcold loadfail force-stalled force-frozen; do
+for scenario in fwfail openfail readfail partialfail empty malformed overflow unknown stalled frozen dead connectfail verifyfail verifyreadfail verifymalformed alive cold newcold loadfail force-stalled force-frozen; do
     : > "$fixture/events"
     args=(--no-daemon)
     [[ $scenario != force-* ]] || args+=(--force)
@@ -81,12 +82,15 @@ for scenario in fwfail readfail partialfail empty malformed overflow unknown sta
             [[ $rc != 0 && $output != *'Apollo initialized and ready'* ]] || fail "$scenario reported success: $output"
             ;;
     esac
+    if [[ $scenario == openfail ]]; then
+        [[ $output == *'fixture denied'* && $output != *'Cannot read DSP health data'* ]] || fail "open error text hidden: $output"
+    fi
     if [[ $scenario == fwfail ]]; then
         [[ $output == *'firmware fixture failure'* && $output != *'Firmware loaded'* ]] || fail 'firmware error hidden'
         command grep -q '^connect$' "$fixture/events" && fail 'activation ran after firmware failure'
     fi
     case "$scenario" in
-        readfail|partialfail|empty|malformed|overflow|unknown|stalled|frozen|dead|alive|loadfail)
+        readfail|openfail|partialfail|empty|malformed|overflow|unknown|stalled|frozen|dead|alive|loadfail)
             command grep -q '^replay$' "$fixture/events" && fail "$scenario incorrectly reached replay"
             ;;
     esac
@@ -96,4 +100,4 @@ for scenario in fwfail readfail partialfail empty malformed overflow unknown sta
     fi
     command grep -Eq '^(service|daemon|unexpected)' "$fixture/events" && fail "$scenario reached forbidden side effect"
 done
-echo 'PASS: 20 complete initializer flows, error propagation, diagnosis gates and session isolation'
+echo 'PASS: 21 complete initializer flows, error propagation, diagnosis gates and session isolation'

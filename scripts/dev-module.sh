@@ -30,15 +30,22 @@ set -uo pipefail
 MOD=ua_apollo
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KO="$PROJECT_DIR/driver/$MOD.ko"
-UA_VENDOR=1a00
 
 red() { printf '\033[31m%s\033[0m\n' "$*"; }
 grn() { printf '\033[32m%s\033[0m\n' "$*"; }
 ylw() { printf '\033[33m%s\033[0m\n' "$*"; }
 hdr() { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
 
+# Match the Apollo by vendor and device ID, as scripts/install.sh does:
+# vendor 1a00 alone would also select UAD-2 PCIe DSP cards.
 pci_addr() {
-    lspci -Dnn 2>/dev/null | awk -v v="$UA_VENDOR" '$0 ~ "\\["v":" {print $1; exit}'
+    lspci -D -d 1a00:0002 2>/dev/null | awk 'NR == 1 { print $1 }'
+}
+
+# PCI devices bound to the driver. The driver directory also holds a
+# "module" symlink, so only domain:bus:slot.function names count.
+bound_devices() {
+    find "/sys/bus/pci/drivers/$MOD" -maxdepth 1 -type l -name '*:*' -printf '%f\n' 2>/dev/null || true
 }
 
 require_root() {
@@ -169,7 +176,7 @@ do_probe() {
     dmesg | sed -n "/$mark/,\$p" | grep -vF "$mark" || true
 
     hdr "Probe side effects"
-    bound=$(find "/sys/bus/pci/drivers/$MOD" -maxdepth 1 -type l -printf '%f\n' 2>/dev/null || true)
+    bound=$(bound_devices)
     [[ -n "$bound" ]] && grn "claimed PCI device: $bound" || ylw "no PCI device claimed"
     compgen -G '/dev/ua_apollo*' >/dev/null && { red "unexpected character device"; unload_probe_only; exit 1; }
     grep -qi apollo /proc/asound/cards 2>/dev/null && { red "unexpected ALSA card"; unload_probe_only; exit 1; }

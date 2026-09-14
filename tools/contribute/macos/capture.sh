@@ -62,6 +62,11 @@ fi
 
 # Check SIP status
 SIP_STATUS=$(csrutil status 2>/dev/null || echo "unknown")
+if [ "$SIP_STATUS" = "unknown" ]; then
+    printf "${RED}Could not read SIP status (csrutil unavailable), so DTrace access cannot be confirmed.${NC}\n"
+    echo "Run 'csrutil status' by hand and re-run once DTrace restrictions are disabled."
+    exit 1
+fi
 if ! dtrace_allowed "$SIP_STATUS"; then
     printf "${RED}DTrace restrictions are enabled. DTrace will not work.${NC}\n"
     echo ""

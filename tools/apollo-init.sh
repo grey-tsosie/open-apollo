@@ -159,6 +159,23 @@ print(f"mixer_responds={1 if mixer_responds else 0}")
 PYEOF
 }
 
+# Read DSP health into $output, or stop with the most specific reason.
+# The reader exits non-zero after printing device_error=..., so that text
+# must be checked before the generic read failure.
+read_state_or_fail() {
+    local message="$1" rc=0
+    output=$(read_dsp_state 2>/dev/null) || rc=$?
+    if echo "$output" | grep -q "^device_error="; then
+        fail "Cannot open device: $(echo "$output" | grep "^device_error=" | cut -d= -f2-)"
+        action "Check: sudo dmesg | tail -20"
+        exit 1
+    fi
+    if [ "$rc" -ne 0 ]; then
+        fail "$message"
+        exit 1
+    fi
+}
+
 # ── Parse state output into variables ──
 
 parse_state() {
@@ -276,15 +293,7 @@ if [ "$STATUS_ONLY" = "1" ]; then
     ok "Device: $DEVICE"
 
     # Read state
-    if ! output=$(read_dsp_state 2>/dev/null); then
-        fail "Cannot read DSP health data"
-        exit 1
-    fi
-
-    if echo "$output" | grep -q "^device_error="; then
-        fail "Cannot open device: $(echo "$output" | grep "^device_error=" | cut -d= -f2-)"
-        exit 1
-    fi
+    read_state_or_fail "Cannot read DSP health data"
 
     parse_state "$output" || exit 1
 
@@ -385,16 +394,7 @@ chmod 666 "$DEVICE"
 # ── Step 2: Diagnose DSP ──
 step "DSP Health Check"
 
-if ! output=$(read_dsp_state 2>/dev/null); then
-    fail "Cannot read DSP health data"
-    exit 1
-fi
-
-if echo "$output" | grep -q "^device_error="; then
-    fail "Cannot read device"
-    action "Check: sudo dmesg | tail -20"
-    exit 1
-fi
+read_state_or_fail "Cannot read DSP health data"
 
 parse_state "$output" || exit 1
 DSP_ALIVE=0
@@ -467,10 +467,7 @@ finally:
     step "Verify"
 
     sleep 0.5
-    if ! output=$(read_dsp_state 2>/dev/null); then
-        fail "Cannot read DSP health data after init"
-        exit 1
-    fi
+    read_state_or_fail "Cannot read DSP health data after init"
     parse_state "$output" || exit 1
 
     if [ "${MIXER_RESPONDS:-0}" = "1" ]; then

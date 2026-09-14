@@ -23,7 +23,7 @@ By default, the driver auto-detects channel counts from the device model:
 |-------|----------|---------|---------|-----|
 | Apollo Solo | 3 | 2 | 1 | 0 |
 | Arrow | 3 | 2 | 1 | 0 |
-| Apollo Twin X | 8 | 8 | 2 | 2 |
+| Apollo Twin X (DUO) | 10 | 16 | 2 | 1 |
 | Apollo x4 | 24 | 22 | 4 | 2 |
 | Apollo x6 | 24 | 22 | 4 | 2 |
 | Apollo x8 | 26 | 26 | 4 | 2 |

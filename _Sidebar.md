@@ -3,6 +3,7 @@
 **Getting Started**
 - [Installation](Installation)
 - [Supported Devices](Supported-Devices)
+- [Apollo Twin X](Apollo-Twin-X)
 - [Hardware Compatibility](Hardware-Compatibility)
 
 **Driver**

@@ -430,7 +430,7 @@ dmesg | grep ua_apollo | grep -iE "error|warn|fail"
 
 ### Key Messages to Look For
 
-The channel count messages below are for the Apollo x4 — other models show different counts (e.g., 8/8 for Twin X, 34/34 for x16).
+The channel count messages below are for the Apollo x4 — other models show different counts (e.g., 10/16 for Twin X DUO, 34/34 for x16).
 
 | Message | Meaning |
 |---------|---------|

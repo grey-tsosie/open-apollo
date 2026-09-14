@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- Documentation moved to the [GitHub wiki](https://github.com/rolotrealanis98/open-apollo/wiki). The `docs/` directory and the open-apollo-docs site are retired; old `open-apollo-docs.pages.dev` links redirect to the wiki.
+
+### Fixed
+- Require explicit hazard acknowledgement for development helper full-mode unloads.
+- Diagnose development helper claims with the existing initializer and warn about autoload.
+- Detect autoload references without early-exit pipeline errors; report inspection failures as unknown.
+- Stop initialization on failed firmware replay or invalid health reads; keep development claims from changing audio services.
+- Keep Twin X Gen 2 outside the untested DSP opt-in and DUO channel measurements.
+- Check device reachability during identification-only PCI recovery.
+- Resolve multi-word device models to their complete mixer-map filenames.
+
 ## [1.0.0] - 2026-03-22
 
 ### Added

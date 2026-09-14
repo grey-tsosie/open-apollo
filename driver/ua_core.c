@@ -60,9 +60,10 @@ static DEFINE_IDA(ua_ida);
 /*
  * probe_only — identification-only probe.
  *
- * Rationale: ring-connect devices (device_type 32..38, which includes
- * Apollo Twin X 0x23 and x8p 0x22) have no confirmed working transport on
- * Linux. Upstream issue #46 reports the x8p never clocking audio, with
+ * Rationale: ring-connect devices (device_type 32..38) need per-model
+ * transport verification. Twin X DUO 0x23 has observed raw audio on Linux;
+ * that does not establish support for other ring-connect models.
+ * Upstream issue #46 reports the x8p 0x22 never clocking audio, with
  * SAMPLE_POS frozen at 0 and a host lockup when PipeWire initialises its
  * Pro profile. The x4 (0x1F) is an AudioExtension device and takes a
  * different connect path, so its success does not carry over.
@@ -2743,7 +2744,7 @@ static int ua_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		dev_info(&pdev->dev, "  connect path : %s\n",
 			 ua_uses_audio_extension(ua->device_type) ?
 			 "AudioExtension (as verified on x4)" :
-			 "ring-buffer connect (NO confirmed working transport, see issue #46)");
+			 "ring-buffer connect (verify transport per model, see issue #46)");
 		dev_info(&pdev->dev, "  subsys id    : 0x%04x\n", ua->subsystem_id);
 		dev_info(&pdev->dev, "  FPGA rev     : 0x%08x\n", ua->fpga_rev);
 		dev_info(&pdev->dev, "  firmware     : %s\n",
@@ -3025,7 +3026,22 @@ static pci_ers_result_t ua_slot_reset(struct pci_dev *pdev)
 
 	dev_info(&pdev->dev, "slot reset\n");
 
-	/* probe_only must stay observational even through error recovery —
+	ret = pcim_enable_device(pdev);
+	if (ret) {
+		dev_err(&pdev->dev, "re-enable after slot reset failed: %d\n", ret);
+		return PCI_ERS_RESULT_DISCONNECT;
+	}
+
+	/* shutdown stays set during recovery, so ua_read() returns all ones.
+	 * Check the mapped register directly while other BAR0 access is blocked. */
+	ua->fpga_rev = ioread32(ua->regs + UA_REG_FPGA_REV);
+	if (ua->fpga_rev == 0xFFFFFFFF) {
+		dev_err(&pdev->dev,
+			"device still unreachable after slot reset\n");
+		return PCI_ERS_RESULT_DISCONNECT;
+	}
+
+	/* probe_only must stay observational even through error recovery;
 	 * the re-init below would program registers we promised not to touch. */
 	if (ua->probe_minimal) {
 		dev_info(&pdev->dev,
@@ -3033,26 +3049,13 @@ static pci_ers_result_t ua_slot_reset(struct pci_dev *pdev)
 		return PCI_ERS_RESULT_RECOVERED;
 	}
 
-	ret = pcim_enable_device(pdev);
-	if (ret) {
-		dev_err(&pdev->dev, "re-enable after slot reset failed: %d\n", ret);
-		return PCI_ERS_RESULT_DISCONNECT;
-	}
-
 	pci_set_master(pdev);
-
-	/* Verify device is actually reachable after re-enable */
-	ua->fpga_rev = ua_read(ua, UA_REG_FPGA_REV);
-	if (ua->fpga_rev == 0xFFFFFFFF) {
-		dev_err(&pdev->dev,
-			"device still unreachable after slot reset\n");
-		return PCI_ERS_RESULT_DISCONNECT;
-	}
-
+	atomic_set(&ua->shutdown, 0);
 	ua_detect_capabilities(ua);
 
 	ret = ua_program_registers(ua);
 	if (ret) {
+		atomic_set(&ua->shutdown, 1);
 		dev_err(&pdev->dev, "hardware re-init after slot reset failed\n");
 		return PCI_ERS_RESULT_DISCONNECT;
 	}

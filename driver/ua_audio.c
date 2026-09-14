@@ -18,6 +18,8 @@
 #include <linux/delay.h>
 #include <linux/jiffies.h>
 #include <linux/dma-mapping.h>
+#include <linux/slab.h>
+#include <linux/vmalloc.h>
 #include <linux/version.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -84,7 +86,7 @@ static const struct ua_model_info ua_models[] = {
 	{ UA_DEV_APOLLO_SOLO,          3,  2,  1, 0 },
 	{ UA_DEV_ARROW,                3,  2,  1, 0 },
 	/*
-	 * Apollo Twin X (0x23) / Twin X Gen 2 (0x3A).
+	 * Apollo Twin X (0x23), measured on DUO only.
 	 *
 	 * Physical I/O: 2 Unison mic/line preamps (rear combo XLR/TRS),
 	 * 1 Hi-Z instrument input (front 1/4"), 2 monitor outs, 1 stereo
@@ -113,10 +115,10 @@ static const struct ua_model_info ua_models[] = {
 	 * 32-bit containers, matching UA_MAX/MIN rate support already assumed.
 	 *
 	 * Still unverified for Twin X Gen 2 (0x3A), which is a distinct model;
-	 * it inherits these numbers only as the best available guess.
+	 * keep its pre-existing placeholder values until measured.
 	 */
 	{ UA_DEV_APOLLO_TWIN_X,       10, 16,  2, 1 },
-	{ UA_DEV_APOLLO_TWIN_X_GEN2,  10, 16,  2, 1 },
+	{ UA_DEV_APOLLO_TWIN_X_GEN2,   8,  8,  2, 2 },
 	{ UA_DEV_APOLLO_X4,           24, 22,  4, 2 },
 	{ UA_DEV_APOLLO_X4_GEN2,     24, 22,  4, 2 },
 	{ UA_DEV_APOLLO_X6,           24, 22,  4, 2 },
@@ -193,37 +195,149 @@ static unsigned int ua_calc_buf_frame_size(unsigned int play_ch,
 }
 
 /* ----------------------------------------------------------------
- * DMA buffer allocation and scatter-gather programming
+ * Audio DMA rings
+ *
+ * Each 4 MiB ring is UA_DMA_SG_ENTRIES separate pages from
+ * dma_alloc_pages() rather than one contiguous dma_alloc_coherent()
+ * block.  A single 4 MiB coherent allocation needs a physically
+ * contiguous order-10 buddy block below 4 GiB (DMA_BIT_MASK(32)); on
+ * a dma-direct (no IOMMU) host with CmaTotal=0, low memory fragments
+ * within hours of uptime and probe fails with -ENOMEM on every replug
+ * (2026-08-29: three consecutive -12 failures after the first
+ * boot-time connect).  The FPGA walks a 1024-entry SG table, so the
+ * device never needed contiguity.
+ *
+ * dma_alloc_pages() rather than per-page dma_alloc_coherent(): it
+ * returns the struct page, which is what vmap() needs to build the
+ * flat CPU view.  dma_alloc_coherent()'s CPU pointer is not a
+ * linear-map address on every backend — behind an IOMMU it is a
+ * vmalloc remap, and virt_to_page() on it is garbage.
+ *
+ * dma_alloc_pages() memory is non-coherent by contract: a range the
+ * CPU wrote is handed to the device with dma_sync_single_for_device()
+ * and taken back before the CPU reads it with
+ * dma_sync_single_for_cpu().  On cache-coherent x86 both are no-ops.
+ * Both rings are DMA_BIDIRECTIONAL because the record ring is also
+ * CPU-written (the dma_test canary).
  * ---------------------------------------------------------------- */
 
-static int ua_audio_alloc_dma(struct ua_device *ua)
+#define UA_DMA_RING_DIR		DMA_BIDIRECTIONAL
+
+static void ua_dma_ring_free(struct device *dev, struct ua_dma_ring *ring)
 {
-	struct ua_audio *audio = &ua->audio;
-	struct device *dev = &ua->pdev->dev;
+	unsigned int i;
 
-	audio->play_buf = dma_alloc_coherent(dev, UA_DMA_BUF_SIZE,
-					     &audio->play_addr, GFP_KERNEL);
-	if (!audio->play_buf)
-		return -ENOMEM;
+	for (i = 0; i < ring->nr_pages; i++)
+		dma_free_pages(dev, PAGE_SIZE, ring->pages[i], ring->dmas[i],
+			       UA_DMA_RING_DIR);
 
-	audio->rec_buf = dma_alloc_coherent(dev, UA_DMA_BUF_SIZE,
-					    &audio->rec_addr, GFP_KERNEL);
-	if (!audio->rec_buf) {
-		dma_free_coherent(dev, UA_DMA_BUF_SIZE,
-				  audio->play_buf, audio->play_addr);
-		audio->play_buf = NULL;
-		return -ENOMEM;
+	kvfree(ring->pages);
+	kvfree(ring->dmas);
+	ring->pages = NULL;
+	ring->dmas = NULL;
+	ring->nr_pages = 0;
+}
+
+/*
+ * Allocate one ring and map it flat into *vaddr.  On failure everything
+ * allocated so far is released and *vaddr is left untouched.
+ */
+static int ua_dma_ring_alloc(struct device *dev, struct ua_dma_ring *ring,
+			     void **vaddr)
+{
+	unsigned int i;
+	void *va;
+
+	/* The flat view is one kernel page per SG entry */
+	BUILD_BUG_ON(PAGE_SIZE != UA_PCIE_PAGE_SIZE);
+	BUILD_BUG_ON(UA_DMA_SG_ENTRIES * UA_PCIE_PAGE_SIZE != UA_DMA_BUF_SIZE);
+
+	ring->pages = kvcalloc(UA_DMA_SG_ENTRIES, sizeof(*ring->pages),
+			       GFP_KERNEL);
+	ring->dmas = kvcalloc(UA_DMA_SG_ENTRIES, sizeof(*ring->dmas),
+			      GFP_KERNEL);
+	if (!ring->pages || !ring->dmas)
+		goto err;
+
+	for (i = 0; i < UA_DMA_SG_ENTRIES; i++) {
+		ring->pages[i] = dma_alloc_pages(dev, PAGE_SIZE, &ring->dmas[i],
+						 UA_DMA_RING_DIR, GFP_KERNEL);
+		if (!ring->pages[i])
+			goto err;
+		ring->nr_pages = i + 1;
 	}
 
-	memset(audio->play_buf, 0, UA_DMA_BUF_SIZE);
-	memset(audio->rec_buf, 0, UA_DMA_BUF_SIZE);
+	/* dma_alloc_pages() zero-fills, so no memset through the vmap */
+	va = vmap(ring->pages, UA_DMA_SG_ENTRIES, VM_MAP, PAGE_KERNEL);
+	if (!va)
+		goto err;
 
-	dev_info(dev, "DMA buffers: play=%pad rec=%pad (4 MiB each)\n",
-		 &audio->play_addr, &audio->rec_addr);
-	dev_info(dev, "DMA phys:    play=0x%llx rec=0x%llx\n",
-		 (u64)virt_to_phys(audio->play_buf),
-		 (u64)virt_to_phys(audio->rec_buf));
+	*vaddr = va;
 	return 0;
+
+err:
+	ua_dma_ring_free(dev, ring);
+	return -ENOMEM;
+}
+
+/*
+ * Transfer ownership of [off, off + len) of a ring: to the device after
+ * the CPU wrote it, or back to the CPU before the CPU reads it.
+ */
+static void ua_dma_ring_sync(struct device *dev, struct ua_dma_ring *ring,
+			     unsigned long off, unsigned long len,
+			     bool to_device)
+{
+	unsigned long first, last;
+
+	if (!len || !ring->nr_pages)
+		return;
+
+	first = off / PAGE_SIZE;
+	last = (off + len - 1) / PAGE_SIZE;
+	if (last >= ring->nr_pages)
+		last = ring->nr_pages - 1;
+
+	for (; first <= last; first++) {
+		if (to_device)
+			dma_sync_single_for_device(dev, ring->dmas[first],
+						   PAGE_SIZE, UA_DMA_RING_DIR);
+		else
+			dma_sync_single_for_cpu(dev, ring->dmas[first],
+						PAGE_SIZE, UA_DMA_RING_DIR);
+	}
+}
+
+/*
+ * Same, for a run of hardware frames that may wrap at the end of the
+ * ring exactly like the PCM copy path does.
+ */
+static void ua_dma_ring_sync_frames(struct device *dev,
+				    struct ua_dma_ring *ring,
+				    unsigned long start_frame,
+				    unsigned long frames,
+				    unsigned int hw_frame_sz,
+				    unsigned int buf_frames,
+				    bool to_device)
+{
+	unsigned long ring_bytes = (unsigned long)buf_frames * hw_frame_sz;
+	unsigned long off, len;
+
+	if (!frames || !buf_frames)
+		return;
+	if (frames > buf_frames)
+		frames = buf_frames;
+
+	off = (start_frame % buf_frames) * (unsigned long)hw_frame_sz;
+	len = frames * (unsigned long)hw_frame_sz;
+
+	if (off + len <= ring_bytes) {
+		ua_dma_ring_sync(dev, ring, off, len, to_device);
+	} else {
+		ua_dma_ring_sync(dev, ring, off, ring_bytes - off, to_device);
+		ua_dma_ring_sync(dev, ring, 0, off + len - ring_bytes,
+				 to_device);
+	}
 }
 
 static void ua_audio_free_dma(struct ua_device *ua)
@@ -231,17 +345,39 @@ static void ua_audio_free_dma(struct ua_device *ua)
 	struct ua_audio *audio = &ua->audio;
 	struct device *dev = &ua->pdev->dev;
 
+	/* vunmap first — the flat views alias the ring pages */
 	if (audio->play_buf) {
-		dma_free_coherent(dev, UA_DMA_BUF_SIZE,
-				  audio->play_buf, audio->play_addr);
+		vunmap(audio->play_buf);
 		audio->play_buf = NULL;
 	}
-
 	if (audio->rec_buf) {
-		dma_free_coherent(dev, UA_DMA_BUF_SIZE,
-				  audio->rec_buf, audio->rec_addr);
+		vunmap(audio->rec_buf);
 		audio->rec_buf = NULL;
 	}
+
+	ua_dma_ring_free(dev, &audio->play_ring);
+	ua_dma_ring_free(dev, &audio->rec_ring);
+}
+
+static int ua_audio_alloc_dma(struct ua_device *ua)
+{
+	struct ua_audio *audio = &ua->audio;
+	struct device *dev = &ua->pdev->dev;
+	int ret;
+
+	ret = ua_dma_ring_alloc(dev, &audio->play_ring, &audio->play_buf);
+	if (ret)
+		return ret;
+
+	ret = ua_dma_ring_alloc(dev, &audio->rec_ring, &audio->rec_buf);
+	if (ret) {
+		ua_audio_free_dma(ua);
+		return ret;
+	}
+
+	dev_info(dev, "DMA buffers: %u pages per direction, vmapped flat (4 MiB each)\n",
+		 UA_DMA_SG_ENTRIES);
+	return 0;
 }
 
 /*
@@ -317,26 +453,23 @@ static void __maybe_unused ua_audio_reset_dma(struct ua_device *ua)
 static void ua_audio_program_sg(struct ua_device *ua)
 {
 	struct ua_audio *audio = &ua->audio;
+	const dma_addr_t *play = audio->play_ring.dmas;
+	const dma_addr_t *rec = audio->rec_ring.dmas;
 	unsigned int i;
-	dma_addr_t addr;
 
 	dev_info(&ua->pdev->dev, "=== PROGRAM SG TABLE (%u entries, stride=0x%x) ===\n",
 		 UA_DMA_SG_ENTRIES, UA_PCIE_PAGE_SIZE);
-	dev_info(&ua->pdev->dev, "  play_addr=%pad rec_addr=%pad\n",
-		 &audio->play_addr, &audio->rec_addr);
 
 	for (i = 0; i < UA_DMA_SG_ENTRIES; i++) {
-		addr = audio->play_addr + (dma_addr_t)i * UA_PCIE_PAGE_SIZE;
 		ua_write(ua, UA_REG_PLAY_DMA_BASE + i * 8,
-			 lower_32_bits(addr));
+			 lower_32_bits(play[i]));
 		ua_write(ua, UA_REG_PLAY_DMA_BASE + i * 8 + 4,
-			 upper_32_bits(addr));
+			 upper_32_bits(play[i]));
 
-		addr = audio->rec_addr + (dma_addr_t)i * UA_PCIE_PAGE_SIZE;
 		ua_write(ua, UA_REG_REC_DMA_BASE + i * 8,
-			 lower_32_bits(addr));
+			 lower_32_bits(rec[i]));
 		ua_write(ua, UA_REG_REC_DMA_BASE + i * 8 + 4,
-			 upper_32_bits(addr));
+			 upper_32_bits(rec[i]));
 	}
 
 	/* No doorbell — kext ProgramRegisters writes SG directly without one */
@@ -370,11 +503,11 @@ static void ua_audio_program_sg(struct ua_device *ua)
 	ua_enable_vector(ua, UA_IRQ_VEC_NOTIFICATION);
 
 	dev_info(&ua->pdev->dev, "  SG[0]: play=0x%08x rec=0x%08x\n",
-		 lower_32_bits(audio->play_addr),
-		 lower_32_bits(audio->rec_addr));
-	dev_info(&ua->pdev->dev, "  SG[1023]: play=0x%08x rec=0x%08x\n",
-		 lower_32_bits(audio->play_addr + 1023ULL * UA_PCIE_PAGE_SIZE),
-		 lower_32_bits(audio->rec_addr + 1023ULL * UA_PCIE_PAGE_SIZE));
+		 lower_32_bits(play[0]), lower_32_bits(rec[0]));
+	dev_info(&ua->pdev->dev, "  SG[%u]: play=0x%08x rec=0x%08x\n",
+		 UA_DMA_SG_ENTRIES - 1,
+		 lower_32_bits(play[UA_DMA_SG_ENTRIES - 1]),
+		 lower_32_bits(rec[UA_DMA_SG_ENTRIES - 1]));
 }
 
 /*
@@ -1729,6 +1862,7 @@ static void ua_audio_stop_transport(struct ua_device *ua)
 int ua_audio_dma_test(struct ua_device *ua, struct ua_dma_test *dt)
 {
 	struct ua_audio *audio = &ua->audio;
+	struct device *dev = &ua->pdev->dev;
 	u32 *scan;
 	unsigned int i;
 	int ret;
@@ -1750,8 +1884,20 @@ int ua_audio_dma_test(struct ua_device *ua, struct ua_dma_test *dt)
 			 ua_read(ua, UA_REG_DMA_CTRL));
 	}
 
-	/* Fill rec_buf with canary */
+	/*
+	 * Fill rec_buf with canary and hand it to the device.  dma_sem is
+	 * held only around the buffer accesses, never across the sleep
+	 * below, so a concurrent ua_audio_fini() is delayed by at most one
+	 * pass over the ring.
+	 */
+	down_read(&audio->dma_sem);
+	if (!audio->rec_buf) {
+		up_read(&audio->dma_sem);
+		return -ENODEV;
+	}
 	memset(audio->rec_buf, 0xDE, UA_DMA_BUF_SIZE);
+	ua_dma_ring_sync(dev, &audio->rec_ring, 0, UA_DMA_BUF_SIZE, true);
+	up_read(&audio->dma_sem);
 	wmb();
 
 	/* Start transport via proper prepare+start sequence */
@@ -1778,7 +1924,14 @@ int ua_audio_dma_test(struct ua_device *ua, struct ua_dma_test *dt)
 	/* Read results */
 	dt->sample_pos = ua_read(ua, UA_REG_AX_SAMPLE_POS);
 
-	/* Scan buffer */
+	/* Take the ring back from the device and scan it */
+	down_read(&audio->dma_sem);
+	if (atomic_read(&ua->shutdown) || !audio->rec_buf) {
+		up_read(&audio->dma_sem);
+		return -ENODEV;
+	}
+	ua_dma_ring_sync(dev, &audio->rec_ring, 0, UA_DMA_BUF_SIZE, false);
+
 	scan = (u32 *)audio->rec_buf;
 	dt->nonzero = 0;
 	dt->non_zero_non_canary = 0;
@@ -1791,6 +1944,7 @@ int ua_audio_dma_test(struct ua_device *ua, struct ua_dma_test *dt)
 
 	/* Copy first 1024 bytes */
 	memcpy(dt->data, audio->rec_buf, sizeof(dt->data));
+	up_read(&audio->dma_sem);
 
 	/* Stop transport */
 	ua_write(ua, UA_REG_AX_CONTROL, 0);
@@ -2030,28 +2184,46 @@ static int ua_pcm_copy(struct snd_pcm_substream *sub, int channel,
 {
 	struct ua_device *ua = snd_pcm_substream_chip(sub);
 	struct ua_audio *audio = &ua->audio;
+	struct device *dev = &ua->pdev->dev;
 	struct snd_pcm_runtime *rt = sub->runtime;
 	unsigned int user_frame_sz = frames_to_bytes(rt, 1);
-
-	if (atomic_read(&ua->shutdown))
-		return -ENODEV;
+	bool playback = sub->stream == SNDRV_PCM_STREAM_PLAYBACK;
+	struct ua_dma_ring *ring;
 	unsigned int hw_ch, hw_frame_sz;
 	char *dma_buf;
 	unsigned long frames, start_frame, i;
+	int ret = 0;
 
-	if (sub->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+	if (atomic_read(&ua->shutdown))
+		return -ENODEV;
+
+	/*
+	 * Keep the flat views mapped for the whole transfer.
+	 * snd_card_disconnect() does not drain a write()/read() that is
+	 * already inside this callback, so ua_audio_fini() takes the write
+	 * side of dma_sem before it vunmaps the rings.
+	 */
+	down_read(&audio->dma_sem);
+
+	if (playback) {
 		hw_ch = audio->play_channels;
 		dma_buf = audio->play_buf;
+		ring = &audio->play_ring;
 	} else {
 		hw_ch = audio->rec_channels;
 		dma_buf = audio->rec_buf;
+		ring = &audio->rec_ring;
+	}
+	if (!dma_buf) {
+		ret = -ENODEV;
+		goto out;
 	}
 	hw_frame_sz = hw_ch * UA_SAMPLE_BYTES;
 
 	frames = bytes / user_frame_sz;
 	start_frame = hwoff / user_frame_sz;
 
-	if (sub->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+	if (playback) {
 		for (i = 0; i < frames; i++) {
 			unsigned long f = (start_frame + i) % audio->buf_frame_size;
 			unsigned long dma_off = f * hw_frame_sz;
@@ -2061,10 +2233,22 @@ static int ua_pcm_copy(struct snd_pcm_substream *sub, int channel,
 				memset(dma_buf + dma_off, 0, hw_frame_sz);
 
 			if (copy_from_iter(dma_buf + dma_off, user_frame_sz,
-					   iter) != user_frame_sz)
-				return -EFAULT;
+					   iter) != user_frame_sz) {
+				ret = -EFAULT;
+				goto out;
+			}
 		}
+
+		/* The CPU wrote these frames — hand them to the device */
+		ua_dma_ring_sync_frames(dev, ring, start_frame, frames,
+					hw_frame_sz, audio->buf_frame_size,
+					true);
 	} else {
+		/* The device wrote these frames — take them back first */
+		ua_dma_ring_sync_frames(dev, ring, start_frame, frames,
+					hw_frame_sz, audio->buf_frame_size,
+					false);
+
 		for (i = 0; i < frames; i++) {
 			unsigned long f = (start_frame + i) % audio->buf_frame_size;
 			unsigned long dma_off = f * hw_frame_sz;
@@ -2081,6 +2265,10 @@ static int ua_pcm_copy(struct snd_pcm_substream *sub, int channel,
 					 "[0]=%08x [1]=%08x [2]=%08x [3]=%08x\n",
 					 f, dma_off, sp,
 					 p[0], p[1], p[2], p[3]);
+
+				/* Whole-ring scan — take all of it back first */
+				ua_dma_ring_sync(dev, ring, 0, UA_DMA_BUF_SIZE,
+						 false);
 
 				/* Check how much canary pattern remains */
 				for (j = 0; j < UA_DMA_BUF_SIZE / 4; j++) {
@@ -2109,11 +2297,16 @@ static int ua_pcm_copy(struct snd_pcm_substream *sub, int channel,
 			}
 
 			if (copy_to_iter(dma_buf + dma_off, user_frame_sz,
-					 iter) != user_frame_sz)
-				return -EFAULT;
+					 iter) != user_frame_sz) {
+				ret = -EFAULT;
+				goto out;
+			}
 		}
 	}
-	return 0;
+
+out:
+	up_read(&audio->dma_sem);
+	return ret;
 }
 
 /*
@@ -2124,14 +2317,34 @@ static int ua_pcm_silence(struct snd_pcm_substream *sub, int channel,
 {
 	struct ua_device *ua = snd_pcm_substream_chip(sub);
 	struct ua_audio *audio = &ua->audio;
+	struct device *dev = &ua->pdev->dev;
 	struct snd_pcm_runtime *rt = sub->runtime;
 	unsigned int user_frame_sz = frames_to_bytes(rt, 1);
-	unsigned int hw_ch = (sub->stream == SNDRV_PCM_STREAM_PLAYBACK) ?
-			     audio->play_channels : audio->rec_channels;
+	bool playback = sub->stream == SNDRV_PCM_STREAM_PLAYBACK;
+	struct ua_dma_ring *ring = playback ? &audio->play_ring :
+					     &audio->rec_ring;
+	unsigned int hw_ch = playback ? audio->play_channels :
+					audio->rec_channels;
 	unsigned int hw_frame_sz = hw_ch * UA_SAMPLE_BYTES;
-	char *dma_buf = (sub->stream == SNDRV_PCM_STREAM_PLAYBACK) ?
-			audio->play_buf : audio->rec_buf;
 	unsigned long frames, start_frame, i;
+	char *dma_buf;
+
+	/*
+	 * Runs under the PCM stream lock, so it must not sleep.  There is
+	 * nothing to do once the device is gone or ua_audio_fini() is
+	 * tearing the rings down; report success rather than an error
+	 * because the ALSA core WARNs on a failed silence fill.
+	 */
+	if (atomic_read(&ua->shutdown))
+		return 0;
+	if (!down_read_trylock(&audio->dma_sem))
+		return 0;
+
+	dma_buf = playback ? audio->play_buf : audio->rec_buf;
+	if (!dma_buf) {
+		up_read(&audio->dma_sem);
+		return 0;
+	}
 
 	frames = bytes / user_frame_sz;
 	start_frame = hwoff / user_frame_sz;
@@ -2142,6 +2355,11 @@ static int ua_pcm_silence(struct snd_pcm_substream *sub, int channel,
 
 		memset(dma_buf + dma_off, 0, hw_frame_sz);
 	}
+
+	ua_dma_ring_sync_frames(dev, ring, start_frame, frames, hw_frame_sz,
+				audio->buf_frame_size, true);
+
+	up_read(&audio->dma_sem);
 	return 0;
 }
 
@@ -4246,6 +4464,7 @@ __attribute__((optimize("Os"))) int ua_audio_init(struct ua_device *ua)
 	int ret;
 
 	spin_lock_init(&audio->lock);
+	init_rwsem(&audio->dma_sem);
 	INIT_DELAYED_WORK(&audio->dsp_service_work, ua_dsp_service_handler);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
 	hrtimer_setup(&audio->period_timer, ua_period_timer_callback,
@@ -4274,12 +4493,17 @@ __attribute__((optimize("Os"))) int ua_audio_init(struct ua_device *ua)
 		 audio->play_channels, audio->rec_channels,
 		 audio->buf_frame_size);
 
-	/* Allocate DMA buffers (skip if ua_audio_preinit_dma already did it) */
-	if (!audio->play_buf) {
-		ret = ua_audio_alloc_dma(ua);
-		if (ret)
-			return ret;
-	}
+	/*
+	 * Allocate DMA buffers and program the SG table.  A no-op when
+	 * ua_audio_preinit_dma() already ran from the connect path; when a
+	 * warm-boot preinit failed this is the retry, and it has to program
+	 * the SG SRAM too — a bare ua_audio_alloc_dma() here left the FPGA
+	 * on the previous OS's entries (see the warm-boot comment in
+	 * ua_core.c).
+	 */
+	ret = ua_audio_preinit_dma(ua);
+	if (ret)
+		return ret;
 
 	/* Create ALSA card */
 	ret = snd_card_new(&ua->pdev->dev, -1, NULL, THIS_MODULE, 0, &card);
@@ -4452,6 +4676,13 @@ void ua_audio_fini(struct ua_device *ua)
 		audio->card = NULL;
 	}
 
-	/* Free DMA buffers */
+	/*
+	 * Free DMA buffers.  Take the write side of dma_sem so a PCM
+	 * copy/silence callback that was already inside the ops when the
+	 * card was disconnected finishes before the flat views go away;
+	 * anything that comes later sees NULL buffers and returns -ENODEV.
+	 */
+	down_write(&audio->dma_sem);
 	ua_audio_free_dma(ua);
+	up_write(&audio->dma_sem);
 }

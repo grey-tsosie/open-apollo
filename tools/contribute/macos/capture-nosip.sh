@@ -8,8 +8,8 @@
 #
 # What this closes: the DMA/CoreAudio channel counts and device identification
 # (gap 2). The x4's authoritative 24/22 came from exactly this kind of IOKit
-# property read; the Twin X's current 8/8 in ua_models[] is an unverified
-# placeholder.
+# property read. The original Twin X DUO's measured 10/16 comes from the
+# same method; other variants still need their own measurements.
 #
 # What this CANNOT close: the routing tables and IO descriptors (gap 3) or the
 # DSP program blobs (gap 4). Those are only visible while the UA driver is
@@ -23,7 +23,7 @@
 #
 set -uo pipefail
 
-OUT="${1:-./twinx-capture-$(date +%Y%m%d-%H%M%S)}"
+OUT="${1:-./apollo-capture-$(date +%Y%m%d-%H%M%S)}"
 
 grn() { printf '\033[32m%s\033[0m\n' "$*"; }
 ylw() { printf '\033[33m%s\033[0m\n' "$*"; }

@@ -3224,7 +3224,8 @@ int ua_dsp_send_routing(struct ua_device *ua)
 
 /*
  * twinx_dsp — opt in to submitting the x4 DSP0 program set on an Apollo
- * Twin X. EXPERIMENTAL and off by default, deliberately.
+ * Twin X (0x23) only, excluding Gen 2. EXPERIMENTAL and off by default.
+ * This path has not been exercised on hardware.
  *
  * The program blobs in ua_dsp_programs.h were captured from an x4
  * (ua_x4_dsp0_programs). macOS is known to load the same five "Bill"
@@ -3247,8 +3248,7 @@ int ua_dsp_load_programs(struct ua_device *ua)
 {
 	unsigned int i;
 	int ret;
-	bool is_twinx = (ua->device_type == UA_DEV_APOLLO_TWIN_X ||
-			 ua->device_type == UA_DEV_APOLLO_TWIN_X_GEN2);
+	bool is_twinx = ua->device_type == UA_DEV_APOLLO_TWIN_X;
 
 	if (ua->device_type != UA_DEV_APOLLO_X4) {
 		if (is_twinx && twinx_dsp) {

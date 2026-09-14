@@ -61,9 +61,6 @@ tools/usb-re/*.etl
 tools/usb-re/*.sys
 tools/usb-re/*.dll
 
-# Docs site (Tailwind Plus license — private repo)
-docs-site/
-
 # Local testbench plans and scripts (not part of project)
 plans/
 tools/testbench/

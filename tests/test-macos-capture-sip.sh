@@ -4,9 +4,15 @@ set -uo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Load capture helpers without running the capture workflow.
-source <(sed '/^# SIP WARNING$/q' \
-    "$PROJECT_DIR/tools/contribute/macos/capture.sh")
+# shellcheck source=tools/contribute/macos/capture-lib.sh
+source "$PROJECT_DIR/tools/contribute/macos/capture-lib.sh"
+case $- in
+    *e*) echo "FAIL: capture helpers enabled errexit"; exit 1 ;;
+esac
+# A denied result in an assignment must not terminate this test shell.
+result=$(dtrace_allowed 'System Integrity Protection status: enabled.')
+rc=$?
+[[ $rc -ne 0 && -z $result ]] || { echo "FAIL: enabled protection accepted"; exit 1; }
 
 fully_disabled='System Integrity Protection status: disabled.'
 custom_allowed='System Integrity Protection status: unknown (Custom Configuration).

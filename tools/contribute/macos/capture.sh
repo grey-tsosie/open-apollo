@@ -20,18 +20,9 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-dtrace_allowed() {
-    local sip_status="$1"
-
-    if printf '%s\n' "$sip_status" | grep -q '^[[:space:]]*DTrace Restrictions:'; then
-        printf '%s\n' "$sip_status" |
-            grep -q '^[[:space:]]*DTrace Restrictions: disabled$'
-        return
-    fi
-
-    printf '%s\n' "$sip_status" |
-        grep -q '^System Integrity Protection status: disabled'
-}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=tools/contribute/macos/capture-lib.sh
+source "$SCRIPT_DIR/capture-lib.sh"
 
 # ============================================================================
 # SIP WARNING
@@ -113,9 +104,6 @@ done
 if [ -z "$OUTPUT" ]; then
     OUTPUT="./apollo-macos-capture-$(date +%Y%m%d-%H%M%S).json"
 fi
-
-# Resolve alongside this script so apollo-selectors.d is found regardless of cwd.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -372,7 +360,7 @@ echo ""
 echo "To also submit manually:"
 echo "  1. Review the files — they contain only hardware identifiers and driver"
 echo "     payloads, no personal data"
-echo "  2. Go to: https://github.com/open-apollo/open-apollo/issues/new?template=device-report.yml"
+echo "  2. Go to: https://github.com/rolotrealanis98/open-apollo/issues/new?template=device-report.yml"
 echo "  3. Attach the JSON file, and the *-selectors.txt file if present —"
 echo "     the raw dumps are the part that is actually useful for routing work"
 echo "  4. Add notes about your Apollo model and macOS version"

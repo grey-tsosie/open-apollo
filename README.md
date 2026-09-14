@@ -1,7 +1,8 @@
 [![Release](https://img.shields.io/github/v/release/rolotrealanis98/open-apollo?style=flat-square)](https://github.com/rolotrealanis98/open-apollo/releases)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL_v2-blue.svg?style=flat-square)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
 [![Ubuntu 24.04](https://img.shields.io/badge/Ubuntu-24.04-E95420?style=flat-square&logo=ubuntu&logoColor=white)](https://github.com/rolotrealanis98/open-apollo/wiki/Hardware-Compatibility)
-[![Docs](https://img.shields.io/badge/docs-open--apollo-blue?style=flat-square)](https://open-apollo-docs.pages.dev)
+[![Docs](https://img.shields.io/badge/docs-wiki-blue?style=flat-square)](https://github.com/rolotrealanis98/open-apollo/wiki)
+[![Installs](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fopen-apollo-api.rolotrealanis.workers.dev%2Fapi%2Fstats%3Fsource%3Duser&query=%24.total_installs&label=installs%20reported&style=flat-square)](https://open-apollo-api.rolotrealanis.workers.dev/)
 [![Issues](https://img.shields.io/github/issues/rolotrealanis98/open-apollo?style=flat-square)](https://github.com/rolotrealanis98/open-apollo/issues)
 
 # Open Apollo
@@ -23,7 +24,7 @@ stack for USB models, along with a mixer daemon and system tray indicator.
 - **Full duplex audio** — 4 analog inputs + 6 analog outputs verified (24/22 total ALSA channels exposed; S/PDIF, ADAT, and virtual channels are unverified)
 - **All sample rates** — 44.1, 48, 88.2, 96, 176.4, 192 kHz
 - **Preamp control** — gain, 48V phantom power, PAD, low cut, phase invert, mic/line switching
-- **Monitor control** — volume, mute, dim, mono, talkback, headphone routing
+- **Monitor control** — volume, mute, dim, mono, headphone routing
 - **DSP mixer** — input faders, pan, sends (AUX1/AUX2, CUE1/CUE2), solo, mute
 - **PipeWire virtual I/O** — named Mic 1-4, Line In 3+4, Monitor L/R, Line Out devices
 - **Desktop audio** — YouTube, system sounds, GNOME volume control all work through Apollo Monitor
@@ -55,9 +56,8 @@ Confirmed working on Ubuntu Studio 24.04 / Intel Tiger Lake-H by contributor @st
 | **PipeWire capture zeros** | Fixed | Resolved by `QUIRK_FLAG_IFACE_SKIP_CLOSE` patch (quirks.c, patch 4) — prevents snd-usb-audio from resetting Interface 3 on stream close |
 | **DSP init ordering** | Documented | `usb-full-init.py` runs before `modprobe snd_usb_audio`; reversed from previous documentation |
 
-{% callout type="note" %}
-USB support uses `sudo bash scripts/install-usb.sh`. See [USB Quick Start](#usb-quick-start-apollo-solo-usb) below.
-{% /callout %}
+> [!NOTE]
+> USB support uses `sudo bash scripts/install-usb.sh`. See [USB Quick Start](#usb-quick-start-apollo-solo-usb) below.
 
 ## Known Issues
 
@@ -90,7 +90,7 @@ USB support uses `sudo bash scripts/install-usb.sh`. See [USB Quick Start](#usb-
 
 ## Not Yet Implemented
 
-Virtual/monitor loopback, console UI, multi-device support, plugin chain (UAD plugins require PACE licensing — not planned)
+Talkback audio routing, virtual/monitor loopback, console UI, multi-device support, plugin chain (UAD plugins require PACE licensing — not planned). Code in the tree that is present but unsupported is listed on the [Experimental Features](https://github.com/rolotrealanis98/open-apollo/wiki/Experimental-Features) wiki page.
 
 ## Supported Devices
 
@@ -105,7 +105,7 @@ Virtual/monitor loopback, console UI, multi-device support, plugin chain (UAD pl
 | Apollo x8p / Gen 2 | Needs Testing |
 | Apollo x16 / Gen 2 | Needs Testing |
 | Apollo x16D | Needs Testing |
-| Apollo Twin X (DUO) | **Partially Verified** — Thunderbolt 3, ring-buffer connect; analog play/capture via PipeWire Multichannel, Discord voice confirmed. Preamp relays / Twin-X DSP programs / routing tables incomplete. Gen 2 and QUAD untested. |
+| Apollo Twin X (DUO) | **Identification + raw I/O verified** — Thunderbolt 3, ring-buffer connect; analog play/capture via PipeWire Multichannel, Discord voice confirmed. Preamp relays / Twin-X DSP programs / routing tables incomplete. Gen 2 and QUAD untested. |
 | Apollo Twin X Gen 2 | Needs Testing |
 | Apollo Solo (Thunderbolt) | Needs Testing |
 | Apollo 8P (original) | Needs Testing |
@@ -273,18 +273,22 @@ The daemon exposes TCP:4710, TCP:4720, and WS:4721 for mixer control from any cl
 
 ## Documentation
 
-Full documentation at **[open-apollo-docs.pages.dev](https://open-apollo-docs.pages.dev/)**, including:
+Full documentation is on the **[GitHub wiki](https://github.com/rolotrealanis98/open-apollo/wiki)**, including:
 
-- [Installation guide](https://open-apollo-docs.pages.dev/docs/installation) — build, install, configure
-- [Supported devices](https://open-apollo-docs.pages.dev/docs/supported-devices) — model compatibility table
-- [Architecture overview](https://open-apollo-docs.pages.dev/docs/architecture-overview) — how the pieces fit together
-- [Register map](https://open-apollo-docs.pages.dev/docs/register-map) — BAR0 hardware register documentation
-- [DSP protocol](https://open-apollo-docs.pages.dev/docs/dsp-protocol) — ring buffer commands and settings batch protocol
-- [How to contribute](https://open-apollo-docs.pages.dev/docs/how-to-contribute) — testing, device captures, code contributions
+- [Installation](https://github.com/rolotrealanis98/open-apollo/wiki/Installation) — build, install, configure, USB install
+- [Supported devices](https://github.com/rolotrealanis98/open-apollo/wiki/Supported-Devices) — model compatibility table
+- [Troubleshooting](https://github.com/rolotrealanis98/open-apollo/wiki/Troubleshooting) — symptoms, causes, fixes
+- [Architecture overview](https://github.com/rolotrealanis98/open-apollo/wiki/Architecture-Overview) — how the pieces fit together
+- [Register map](https://github.com/rolotrealanis98/open-apollo/wiki/Register-Map) — BAR0 hardware register documentation
+- [DSP protocol](https://github.com/rolotrealanis98/open-apollo/wiki/DSP-Protocol) — ring buffer commands and settings batch protocol
+- [How to contribute](https://github.com/rolotrealanis98/open-apollo/wiki/How-to-Contribute) — testing, device captures, code contributions
 
-Documentation content lives in the [`docs/`](docs/) directory of this repo. Edit the
-Markdown files there and submit a PR — changes are automatically deployed to the
-docs site.
+The wiki is the only copy of the documentation. Edit pages there directly; no PR needed.
+
+Install telemetry from the installers' opt-in reports is public at the
+**[install dashboard](https://open-apollo-api.rolotrealanis.workers.dev/)**:
+success rates by distro and kernel, a Thunderbolt controller compatibility
+matrix, and per-report install step results.
 
 ## Contributing
 

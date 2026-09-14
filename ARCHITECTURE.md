@@ -31,11 +31,9 @@ open-apollo/
 │   ├── install.sh       # One-command installer
 │   └── check-deps.sh    # Dependency checker
 │
-├── tools/               # Utilities
-│   ├── apollo-init.sh   # Hardware initialization
-│   └── open-apollo-tray.py  # System tray indicator
-│
-└── docs/                # Documentation (sources docs site)
+└── tools/               # Utilities
+    ├── apollo-init.sh   # Hardware initialization
+    └── open-apollo-tray.py  # System tray indicator
 ```
 
 ## Data Flow

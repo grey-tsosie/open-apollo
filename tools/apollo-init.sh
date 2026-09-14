@@ -174,6 +174,17 @@ parse_state() {
     RB3=$(echo "$output" | grep "^rb3=" | cut -d= -f2)
     MIXER_RESPONDS=$(echo "$output" | grep "^mixer_responds=" | cut -d= -f2)
     DEVICE_ERROR=$(echo "$output" | grep "^device_error=" | cut -d= -f2-)
+    # Missing or malformed health data must not look like a cold boot.
+    if [[ ! $PCIE_OK =~ ^[01]$ || ! $MIXER_RESPONDS =~ ^[01]$ ||
+          ! $SEQ_WR =~ ^[0-9]{1,10}$ || ! $SEQ_RD =~ ^[0-9]{1,10}$ ]]; then
+        fail "Incomplete or invalid DSP health data"
+        return 1
+    fi
+    if (( 10#$SEQ_WR > 4294967295 || 10#$SEQ_RD > 4294967295 )); then
+        fail "DSP sequence counter outside register range"
+        return 1
+    fi
+    return 0
 }
 
 # ── Diagnose and report ──
@@ -234,9 +245,9 @@ diagnose() {
     fi
 
     # 6. Unknown state
-    warn "Unknown DSP state (SEQ_WR=$SEQ_WR SEQ_RD=$SEQ_RD mixer_responds=$MIXER_RESPONDS)"
+    fail "Unknown DSP state (SEQ_WR=$SEQ_WR SEQ_RD=$SEQ_RD mixer_responds=$MIXER_RESPONDS)"
     DSP_ALIVE=0
-    return 0
+    return 1
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -265,14 +276,17 @@ if [ "$STATUS_ONLY" = "1" ]; then
     ok "Device: $DEVICE"
 
     # Read state
-    output=$(read_dsp_state 2>/dev/null) || true
+    if ! output=$(read_dsp_state 2>/dev/null); then
+        fail "Cannot read DSP health data"
+        exit 1
+    fi
 
     if echo "$output" | grep -q "^device_error="; then
         fail "Cannot open device: $(echo "$output" | grep "^device_error=" | cut -d= -f2-)"
         exit 1
     fi
 
-    parse_state "$output"
+    parse_state "$output" || exit 1
 
     # PCIe
     if [ "${PCIE_OK:-0}" = "0" ]; then
@@ -371,7 +385,10 @@ chmod 666 "$DEVICE"
 # ── Step 2: Diagnose DSP ──
 step "DSP Health Check"
 
-output=$(read_dsp_state 2>/dev/null) || true
+if ! output=$(read_dsp_state 2>/dev/null); then
+    fail "Cannot read DSP health data"
+    exit 1
+fi
 
 if echo "$output" | grep -q "^device_error="; then
     fail "Cannot read device"
@@ -379,7 +396,7 @@ if echo "$output" | grep -q "^device_error="; then
     exit 1
 fi
 
-parse_state "$output"
+parse_state "$output" || exit 1
 DSP_ALIVE=0
 
 if ! diagnose; then
@@ -399,7 +416,11 @@ else
     step "Firmware Replay"
 
     info "Loading 15 firmware blocks (169 KB)..."
-    fw_output=$(cd "$REPO_ROOT" && python3 tools/replay-fw-blocks.py 2>&1) || true
+    if ! fw_output=$(cd "$REPO_ROOT" && python3 tools/replay-fw-blocks.py 2>&1); then
+        fail "Firmware replay failed; stopping initialization"
+        printf '%s\n' "$fw_output"
+        exit 1
+    fi
     echo "$fw_output" | grep -E "^(Filtered|Total|Replay)" || true
     ok "Firmware loaded"
 
@@ -446,8 +467,11 @@ finally:
     step "Verify"
 
     sleep 0.5
-    output=$(read_dsp_state 2>/dev/null) || true
-    parse_state "$output"
+    if ! output=$(read_dsp_state 2>/dev/null); then
+        fail "Cannot read DSP health data after init"
+        exit 1
+    fi
+    parse_state "$output" || exit 1
 
     if [ "${MIXER_RESPONDS:-0}" = "1" ]; then
         ok "Mixer DSP verified — SEQ_WR=$SEQ_WR SEQ_RD=$SEQ_RD"

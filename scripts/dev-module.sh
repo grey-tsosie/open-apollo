@@ -4,26 +4,32 @@
 #
 #   probe    load with probe_only=1, report identity, and unload
 #   trace    load with connect and plugins disabled, report DMA state, and unload
-#   status   report current ownership and whether it is safe to unplug
+#   status   report current ownership and detected autoload configuration
 #   release  quiesce and unload so the cable can move to another host
 #   claim    load the driver for Linux use
 #
-# Why this is safe by construction: the module is NOT installed into
-# /lib/modules, so `modprobe ua_apollo` cannot find it, and there are no
-# modules-load.d, modprobe.d, udev or DKMS entries referencing it. Nothing on
-# this host claims the Apollo unless you explicitly run `claim`. That is the
-# property that makes switching seamless, and it is worth preserving —
-# installing DKMS or an autoload rule would break it.
+# Manual ownership applies only to insmod workflows without install.sh,
+# installed modules, DKMS, or autoload rules. The default installer enables
+# DKMS and allows automatic binding at boot. claim/release check for this.
 #
-# WARNING: rmmod after full initialization is the documented brick path on the
-# Apollo x4. The Thunderbolt link can drop and require a cold boot.
+# Project rule: "NEVER rmmod ua_apollo". After full initialization it can kill
+# the Thunderbolt link on an x4, requiring a cold boot to recover.
+# trace/release require --allow-unsafe-unload to acknowledge this hazard.
+# probe unloads only its own probe_only=1 load.
 #
-# Usage:  sudo ./scripts/dev-module.sh {probe|trace|status|release|claim} [extra insmod args]
+# Usage:
+#   sudo ./scripts/dev-module.sh probe
+#   ./scripts/dev-module.sh status
+#   sudo ./scripts/dev-module.sh {trace|release} --allow-unsafe-unload
+#   sudo ./scripts/dev-module.sh claim [--force]
+# claim uses apollo-init.sh without daemon or PipeWire setup; --force bypasses
+# its stalled/frozen DSP gate but does not bypass failed reads or firmware errors.
 #
 set -uo pipefail
 
 MOD=ua_apollo
-KO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../driver" && pwd)/$MOD.ko"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+KO="$PROJECT_DIR/driver/$MOD.ko"
 UA_VENDOR=1a00
 
 red() { printf '\033[31m%s\033[0m\n' "$*"; }
@@ -85,27 +91,58 @@ show_status() {
         grn "module      : not loaded"
     fi
 
-    # Anything that could grab it without being asked.
-    hdr "Autoload check (all of these should be empty)"
-    local bad=0
-    for p in /etc/modules-load.d /usr/lib/modules-load.d /etc/modprobe.d \
-             /etc/udev/rules.d /usr/lib/udev/rules.d; do
-        if grep -rl "$MOD" "$p" 2>/dev/null | grep -q .; then
-            red "  reference found in $p"; bad=1
-        fi
-    done
-    find "/lib/modules/$(uname -r)" -name "$MOD*" 2>/dev/null | grep -q . && {
-        red "  installed in /lib/modules — modprobe can find it"; bad=1; }
-    command -v dkms >/dev/null && dkms status 2>/dev/null | grep -qi apollo && {
-        red "  DKMS entry present"; bad=1; }
-    [[ $bad -eq 0 ]] && grn "  clean — nothing can autoload this driver"
+    local autoload=0
+    check_autoload || autoload=1
 
     hdr "Verdict"
     if grep -q "^${MOD} " /proc/modules; then
-        ylw "Linux owns the Apollo. Run 'release' before moving the cable."
+        ylw "Linux owns the Apollo. Full-mode unload can break the Thunderbolt link."
+    elif [[ $autoload -ne 0 ]]; then
+        ylw "Module absent, but autoload may reclaim the Apollo when it appears."
     else
-        grn "Linux is not touching the Apollo. Safe to unplug and move to Mac/PC."
+        grn "Module absent; no autoload references found."
     fi
+}
+
+check_autoload() {
+    hdr "Autoload check (all of these should be empty)"
+    local bad=0 output rc
+    for p in /etc/modules-load.d /usr/lib/modules-load.d /etc/modprobe.d \
+             /etc/udev/rules.d /usr/lib/udev/rules.d; do
+        [[ -d "$p" ]] || continue
+        # Capture all output: grep -q would close the pipe early and make
+        # a matching producer fail with SIGPIPE under pipefail.
+        output=$(grep -rl "$MOD" "$p" 2>/dev/null)
+        rc=$?
+        if [[ -n "$output" ]]; then
+            red "  reference found in $p"; bad=1
+        fi
+        if [[ $rc -gt 1 ]]; then
+            ylw "  could not inspect $p; autoload state is unknown"; bad=1
+        fi
+    done
+    output=$(find "/lib/modules/$(uname -r)" -name "$MOD*" 2>/dev/null)
+    rc=$?
+    if [[ -n "$output" ]]; then
+        red "  installed in /lib/modules — modprobe can find it"; bad=1
+    fi
+    if [[ $rc -ne 0 ]]; then
+        ylw "  could not inspect installed modules; autoload state is unknown"; bad=1
+    fi
+    if command -v dkms >/dev/null; then
+        output=$(dkms status 2>/dev/null)
+        rc=$?
+        if [[ ${output,,} == *apollo* ]]; then
+            red "  DKMS entry present"; bad=1
+        fi
+        if [[ $rc -ne 0 ]]; then
+            ylw "  could not inspect DKMS; autoload state is unknown"; bad=1
+        fi
+    fi
+    if [[ $bad -eq 0 ]]; then
+        grn "  no autoload references found"
+    fi
+    return "$bad"
 }
 
 do_probe() {
@@ -193,15 +230,11 @@ do_trace() {
 }
 
 do_release() {
+    check_autoload || ylw "WARNING: autoload can reclaim the Apollo after release."
     hdr "Releasing"
     if ! grep -q "^${MOD} " /proc/modules; then
         grn "$MOD not loaded — already released"
     else
-        # ua_remove() quiesces the device on the way out: it zeroes AX_CONTROL,
-        # TRANSPORT and the IRQ enables, then waits 100ms for the firmware to
-        # drain. That is what leaves the unit in a state the macOS/Windows
-        # driver can re-initialise cleanly, so prefer rmmod over yanking the
-        # cable while loaded.
         echo "unloading (this stops transport and disables interrupts)..."
         ylw "WARNING: rmmod after full initialization is the documented Apollo x4 brick path."
         ylw "The Thunderbolt link can drop and require a cold boot."
@@ -229,34 +262,54 @@ do_release() {
 }
 
 do_claim() {
-    hdr "Claiming for Linux"
-    [[ -f "$KO" ]] || { red "not built: $KO"; exit 1; }
-    grep -q "^${MOD} " /proc/modules && { ylw "already loaded"; exit 0; }
-
-    local addr; addr=$(pci_addr)
-    [[ -n "$addr" ]] || { red "no UA PCIe endpoint — is the cable here and the unit on?"; exit 1; }
-
+    check_autoload || ylw "WARNING: this host can claim the Apollo automatically."
     ylw "Reminder: turn monitor level down and unplug headphones."
     ylw "Routing is not yet mapped for this model, so output levels are not trustworthy."
-    echo
-    echo "insmod $KO ${*:-}"
-    if insmod "$KO" "$@"; then
-        grn "loaded"
-        sleep 2
-        cat /proc/asound/cards 2>/dev/null | grep -iE "apollo|ua_" || ylw "(no Apollo ALSA card yet)"
-    else
-        red "insmod failed"; exit 1
-    fi
+    # The existing initializer diagnoses after loading, before firmware replay.
+    # Keep its stalled/frozen checks and exit status, without changing the
+    # user's audio services, profiles, or default output.
+    APOLLO_SKIP_PIPEWIRE=1 bash "$PROJECT_DIR/tools/apollo-init.sh" --no-daemon "$@"
 }
 
-[[ $# -ge 1 ]] || { echo "usage: $0 {probe|trace|status|release|claim} [insmod args]"; exit 1; }
-cmd=$1; shift
+usage() {
+    echo "usage: $0 {probe|status|claim [--force]|trace|release}"
+    echo "trace/release require --allow-unsafe-unload."
+    echo 'Project rule: "NEVER rmmod ua_apollo".'
+    echo "Full-mode unload can kill the x4 Thunderbolt link and require a cold boot."
+}
 
-case "$cmd" in
-    probe)   require_root; do_probe ;;
-    trace)   require_root; do_trace ;;
-    status)  show_status ;;
-    release) require_root; do_release ;;
-    claim)   require_root; do_claim "$@" ;;
-    *)       red "unknown: $cmd"; echo "usage: $0 {probe|trace|status|release|claim}"; exit 1 ;;
-esac
+main() {
+    [[ $# -ge 1 ]] || { usage; return 1; }
+    local cmd=$1
+    shift
+
+    case "$cmd" in
+        trace|release)
+            if [[ $# -ne 1 || $1 != --allow-unsafe-unload ]]; then
+                usage
+                return 1
+            fi
+            require_root
+            "do_$cmd"
+            ;;
+        probe|status)
+            [[ $# -eq 0 ]] || { usage; return 1; }
+            if [[ $cmd == probe ]]; then
+                require_root
+                do_probe
+            else
+                show_status
+            fi
+            ;;
+        claim)
+            [[ $# -eq 0 || ( $# -eq 1 && $1 == --force ) ]] || { usage; return 1; }
+            require_root
+            do_claim "$@"
+            ;;
+        *) usage; return 1 ;;
+    esac
+}
+
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+    main "$@"
+fi

@@ -2717,16 +2717,19 @@ static int ua_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	 *
 	 * Everything above this point is register reads plus the PCI
 	 * enable/BAR map, both of which are devres-managed (pcim_*) and
-	 * unwind automatically. Bus mastering is enabled only after this
-	 * block, so a probe_only device cannot initiate DMA from whatever
-	 * ring state the previous OS left behind. Nothing below has run,
-	 * so ua_remove() must not attempt the normal teardown — hence
-	 * probe_minimal.
+	 * unwind automatically. pci_enable_device() leaves the bus-master
+	 * bit as the previous OS left it, so clear it explicitly: a config
+	 * space write only, no BAR0 access, and it stops the device issuing
+	 * new DMA from stale ring state. Bus mastering is enabled again only
+	 * on the normal path below. Nothing below has run, so ua_remove()
+	 * must not attempt the normal teardown — hence probe_minimal.
 	 */
 	if (probe_only) {
 		char serial[UA_REG_SERIAL_LEN + 1];
 		u32 sregs[UA_REG_SERIAL_LEN / 4];
 		unsigned int i;
+
+		pci_clear_master(pdev);
 
 		for (i = 0; i < ARRAY_SIZE(sregs); i++)
 			sregs[i] = ua_read(ua, UA_REG_SERIAL_BASE + i * 4);

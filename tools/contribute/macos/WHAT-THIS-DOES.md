@@ -3,6 +3,20 @@
 This document explains exactly what `capture.sh` does, line by line, so you can
 make an informed decision before running it.
 
+The macOS contribution tools have two entry points:
+
+- `./tools/contribute/macos/capture-nosip.sh [outdir]` collects device identity
+  and channel counts without DTrace, sudo, SIP changes, or uploads. Run it on
+  macOS with your Thunderbolt Apollo connected and visible in UA Console.
+  Review the output before sharing: IORegistry and topology reports can contain
+  serial numbers and identifiers of other connected devices. It does not collect
+  UA preference files. Start with `highlight-ua-lines.txt`,
+  `highlight-channels.txt`, `thunderbolt.json`, and `audio.json`.
+  Failed commands keep their error output and make the collector exit nonzero.
+  These files may show the kext's device type; if they do not, do not infer it
+  from the Linux driver's model assignment.
+- `capture.sh` runs `apollo-selectors.d` to capture routing and program payloads.
+
 ## What is SIP?
 
 **System Integrity Protection (SIP)** is a macOS security feature that prevents

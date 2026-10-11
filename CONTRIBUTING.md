@@ -71,6 +71,13 @@ captures from a working macOS system using DTrace. See the
 for instructions. The capture script is read-only — it observes driver behavior
 without modifying anything.
 
+For identity and channel counts first, run
+`./tools/contribute/macos/capture-nosip.sh [outdir]` on macOS. It needs no sudo
+or SIP changes and never uploads. Unlike the register capture, its IORegistry
+and topology files may include serial numbers and other hardware identifiers;
+review and redact before sharing. See
+[what the macOS tools collect](tools/contribute/macos/WHAT-THIS-DOES.md).
+
 For **USB** models, the equivalent is a USBPcap capture of the Windows driver
 bringing the device up, which you then replay on Linux from your own machine.
 See the [Device Capture (Windows, USB) guide](https://github.com/rolotrealanis98/open-apollo/wiki/Device-Capture-Windows).

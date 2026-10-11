@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Model-neutral macOS identity and channel-count capture without changing SIP or uploading files.
+
+### Fixed
+- Mixer daemon device-map lookup preserves multi-word model names and descriptor filename fallbacks.
+- macOS DTrace capture checks DTrace restrictions in custom SIP configurations and rejects unreadable status.
+
 ### Changed
 - Documentation moved to the [GitHub wiki](https://github.com/rolotrealanis98/open-apollo/wiki). The `docs/` directory and the open-apollo-docs site are retired; old `open-apollo-docs.pages.dev` links redirect to the wiki.
 

@@ -55,6 +55,25 @@ check "apollo_driver_bound rejects a device owned by another driver" \
 check "apollo_driver_bound accepts ua_apollo" \
     apollo_driver_bound "$tmp_dir/bound"
 
+# DKMS registration check.  More output than a pipe buffer holds, so a
+# consumer that stops reading early makes the stub die of SIGPIPE, as real
+# dkms did once linux-omarchy added a second kernel line (2026-09-29).
+dkms() {
+    local i
+    for ((i = 0; i < 4000; i++)); do
+        echo "ua_apollo/$VERSION, 7.2.$i-arch1-1, x86_64: installed"
+    done
+}
+check "dkms_registered sees a module installed for many kernels" \
+    dkms_registered
+dkms() { :; }
+check "dkms_registered reports an unregistered module" \
+    not dkms_registered
+dkms() { return 1; }
+check "dkms_registered treats a dkms failure as unregistered" \
+    not dkms_registered
+unset -f dkms
+
 if [ "$failures" -ne 0 ]; then
     echo "$failures check(s) failed"
     exit 1

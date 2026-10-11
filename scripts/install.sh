@@ -438,6 +438,16 @@ build_driver() {
 # ================================================================
 # Step 4: DKMS setup
 # ================================================================
+# True when DKMS already has ua_apollo/$VERSION registered for any kernel.
+# Capture first: under pipefail, `dkms status | grep -q .` reads as "not
+# registered" once dkms prints a second line (grep exits, dkms dies of
+# SIGPIPE), and the following `dkms add` then fails.
+dkms_registered() {
+    local status
+    status=$(dkms status "ua_apollo/$VERSION" 2>/dev/null) || return 1
+    [ -n "$status" ]
+}
+
 setup_dkms() {
     header "DKMS Setup"
 
@@ -463,7 +473,7 @@ setup_dkms() {
     local dkms_src="/usr/src/ua_apollo-$VERSION"
 
     # Remove existing DKMS registration if present
-    if dkms status ua_apollo/$VERSION 2>/dev/null | grep -q .; then
+    if dkms_registered; then
         info "Removing existing DKMS registration..."
         run_sudo dkms remove ua_apollo/$VERSION --all 2>/dev/null || true
     fi
